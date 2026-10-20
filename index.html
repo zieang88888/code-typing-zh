@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeTyper · 程序员打字测速游戏</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel2: #334155;
+  --text: #e2e8f0; --accent: #38bdf8; --ok: #34d399; --err: #f87171;
+  --border: #475569;
+}
+body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 24px; }
+header { text-align: center; margin-bottom: 20px; }
+header h1 { font-size: 26px; }
+header h1 span { color: var(--accent); }
+header p { color: #94a3b8; font-size: 14px; margin-top: 6px; }
+.stats { display: flex; gap: 24px; margin-bottom: 20px; flex-wrap: wrap; justify-content: center; }
+.stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 22px; text-align: center; min-width: 110px; }
+.stat .num { font-size: 26px; font-weight: 700; color: var(--accent); }
+.stat .label { font-size: 12px; color: #94a3b8; margin-top: 2px; }
+.controls { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; justify-content: center; }
+.btn { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 18px; font-size: 14px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); color: #0f172a; border: none; font-weight: 600; }
+select { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 14px; }
+.code-area { width: 100%; max-width: 860px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 24px; margin-bottom: 20px; }
+#target { font-family: "Cascadia Code", Consolas, monospace; font-size: 16px; line-height: 1.8; white-space: pre-wrap; word-break: break-all; color: #64748b; }
+#target .done { color: var(--ok); }
+#target .cur { background: rgba(56,189,248,.35); border-radius: 3px; color: #fff; }
+#target .err { background: rgba(248,113,113,.4); color: #fff; }
+#target .wait { color: #94a3b8; }
+#inputBox { width: 100%; max-width: 860px; background: var(--panel); border: 2px solid var(--accent); border-radius: 14px; color: var(--text); padding: 18px 22px; font-size: 16px; font-family: "Cascadia Code", Consolas, monospace; min-height: 60px; outline: none; resize: none; line-height: 1.8; }
+#inputBox:disabled { border-color: var(--border); opacity: .5; }
+.result { display: none; background: var(--panel); border: 1px solid var(--accent); border-radius: 14px; padding: 20px 28px; margin-top: 18px; text-align: center; }
+.result .big { font-size: 22px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+.result .sub { color: #94a3b8; font-size: 14px; }
+.tip { color: #64748b; font-size: 13px; margin-top: 14px; text-align: center; }
+.toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: var(--accent); color: #0f172a; padding: 10px 22px; border-radius: 999px; font-size: 13px; font-weight: 600; opacity: 0; transition: .3s; pointer-events: none; z-index: 99; }
+.toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Code<span>Typer</span> · 程序员打字测速</h1>
+  <p>打一段真实代码，测出你的手速！WPM / 准确率 / 用时 一目了然</p>
+</header>
+
+<div class="stats">
+  <div class="stat"><div class="num" id="wpm">0</div><div class="label">WPM (字/分钟)</div></div>
+  <div class="stat"><div class="num" id="acc">100%</div><div class="label">准确率</div></div>
+  <div class="stat"><div class="num" id="time">0.0s</div><div class="label">用时</div></div>
+  <div class="stat"><div class="num" id="best">--</div><div class="label">历史最佳 WPM</div></div>
+</div>
+
+<div class="controls">
+  <select id="langSelect">
+    <option value="python">Python</option>
+    <option value="js">JavaScript</option>
+    <option value="java">Java</option>
+    <option value="sql">SQL</option>
+    <option value="go">Go</option>
+  </select>
+  <button class="btn primary" id="startBtn">▶ 开始</button>
+  <button class="btn" id="retryBtn">🔄 换一段</button>
+</div>
+
+<div class="code-area"><div id="target"></div></div>
+<textarea id="inputBox" placeholder="点击「开始」后在这里打字…" disabled></textarea>
+
+<div class="result" id="resultBox">
+  <div class="big" id="resultText"></div>
+  <div class="sub" id="resultSub"></div>
+</div>
+<div class="tip">⌨️ 打字从第一个字符开始计时 · 回车换行 · 完成自动统计</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var SAMPLES = {
+    python: '# 计算斐波那契数列\n' +
+            'def fib(n):\n' +
+            '    a, b = 0, 1\n' +
+            '    for _ in range(n):\n' +
+            '        a, b = b, a + b\n' +
+            '    return a\n' +
+            '\n' +
+            'print(fib(10))  # 55',
+    js: '// 防抖函数\n' +
+        'function debounce(fn, delay = 300) {\n' +
+        '  let timer = null;\n' +
+        '  return function (...args) {\n' +
+        '    clearTimeout(timer);\n' +
+        '    timer = setTimeout(() => fn.apply(this, args), delay);\n' +
+        '  };\n' +
+        '}',
+    java: 'public class Hello {\n' +
+          '    public static void main(String[] args) {\n' +
+          '        System.out.println("Hello, World!");\n' +
+          '    }\n' +
+          '}',
+    sql: 'SELECT u.name, COUNT(o.id) AS orders\n' +
+         'FROM users u\n' +
+         'LEFT JOIN orders o ON u.id = o.user_id\n' +
+         'GROUP BY u.name\n' +
+         'HAVING COUNT(o.id) > 0\n' +
+         'ORDER BY orders DESC;',
+    go: 'package main\n' +
+        '\n' +
+        'import "fmt"\n' +
+        '\n' +
+        'func main() {\n' +
+        '    nums := []int{1, 2, 3}\n' +
+        '    sum := 0\n' +
+        '    for _, n := range nums {\n' +
+        '        sum += n\n' +
+        '    }\n' +
+        '    fmt.Println(sum)\n' +
+        '}'
+  };
+
+  var target = $('target'), inputBox = $('inputBox');
+  var wpmEl = $('wpm'), accEl = $('acc'), timeEl = $('time'), bestEl = $('best');
+  var resultBox = $('resultBox'), resultText = $('resultText'), resultSub = $('resultSub');
+  var toast = $('toast');
+  var current = '', startTime = 0, errors = 0, running = false, finished = false;
+  var best = parseInt(localStorage.getItem('codetyper_best') || '0', 10);
+  if (best > 0) bestEl.textContent = best;
+
+  function showToast(msg) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(function () { toast.classList.remove('show'); }, 1500);
+  }
+
+  function pick() {
+    var lang = $('langSelect').value;
+    var pool = SAMPLES[lang];
+    current = pool;
+    errors = 0;
+    running = false; finished = false;
+    inputBox.disabled = true;
+    inputBox.value = '';
+    wpmEl.textContent = '0'; accEl.textContent = '100%'; timeEl.textContent = '0.0s';
+    resultBox.style.display = 'none';
+    renderTarget(0);
+  }
+
+  function renderTarget(pos) {
+    var html = '';
+    for (var i = 0; i < current.length; i++) {
+      var ch = current[i];
+      if (i < pos) html += '<span class="done">' + esc(ch) + '</span>';
+      else if (i === pos) html += '<span class="cur">' + esc(ch) + '</span>';
+      else html += '<span class="wait">' + esc(ch) + '</span>';
+    }
+    target.innerHTML = html;
+  }
+
+  function esc(ch) {
+    if (ch === '<') return '&lt;';
+    if (ch === '>') return '&gt;';
+    if (ch === '&') return '&amp;';
+    if (ch === ' ') return ' ';
+    return ch;
+  }
+
+  $('startBtn').addEventListener('click', function () {
+    inputBox.disabled = false;
+    inputBox.focus();
+    running = true; finished = false;
+    errors = 0;
+    startTime = Date.now();
+    renderTarget(0);
+    resultBox.style.display = 'none';
+    showToast('开始打字！');
+  });
+
+  $('retryBtn').addEventListener('click', pick);
+  $('langSelect').addEventListener('change', pick);
+
+  inputBox.addEventListener('input', function () {
+    if (!running) return;
+    var typed = inputBox.value;
+    var pos = typed.length;
+    // 统计错误（逐字符对比）
+    var err = 0;
+    for (var i = 0; i < typed.length && i < current.length; i++) {
+      if (typed[i] !== current[i]) err++;
+    }
+    errors = err;
+    renderTarget(pos);
+    updateStats();
+    if (typed.length >= current.length) {
+      finish();
+    }
+  });
+
+  function updateStats() {
+    var elapsed = (Date.now() - startTime) / 1000;
+    var mins = elapsed / 60;
+    var chars = inputBox.value.length;
+    var wpm = mins > 0 ? Math.round(chars / 5 / mins) : 0;
+    var acc = chars > 0 ? Math.max(0, Math.round((chars - errors) / chars * 100)) : 100;
+    wpmEl.textContent = wpm;
+    accEl.textContent = acc + '%';
+    timeEl.textContent = elapsed.toFixed(1) + 's';
+  }
+
+  function finish() {
+    running = false; finished = true;
+    inputBox.disabled = true;
+    var elapsed = (Date.now() - startTime) / 1000;
+    var mins = elapsed / 60;
+    var chars = current.length;
+    var wpm = mins > 0 ? Math.round(chars / 5 / mins) : 0;
+    var acc = Math.max(0, Math.round((chars - errors) / chars * 100));
+    wpmEl.textContent = wpm;
+    accEl.textContent = acc + '%';
+    timeEl.textContent = elapsed.toFixed(1) + 's';
+    if (wpm > best) {
+      best = wpm;
+      localStorage.setItem('codetyper_best', String(best));
+      bestEl.textContent = best;
+      resultText.textContent = '🎉 新纪录！' + wpm + ' WPM';
+      resultSub.textContent = '准确率 ' + acc + '% · 用时 ' + elapsed.toFixed(1) + 's · 刷新了你的历史最佳';
+    } else {
+      resultText.textContent = '完成！' + wpm + ' WPM';
+      resultSub.textContent = '准确率 ' + acc + '% · 用时 ' + elapsed.toFixed(1) + 's · 历史最佳 ' + best + ' WPM';
+    }
+    resultBox.style.display = 'block';
+  }
+
+  pick();
+})();
+</script>
+</body>
+</html>
